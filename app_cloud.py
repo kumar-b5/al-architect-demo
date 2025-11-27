@@ -89,11 +89,30 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# ... (Top of file remains the same) ...
+
+# HANDLE INPUT
 if prompt := st.chat_input("Ask a question..."):
+    # 1. Show User Message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
+
+    # 2. Generate AI Response (WITH ERROR CATCHING)
     with st.chat_message("assistant"):
-        response = router.query(prompt)
-        st.markdown(response.response)
-        st.session_state.messages.append({"role": "assistant", "content": str(response.response)})
+        with st.spinner("Thinking..."):
+            try:
+                # This is the line that might crash
+                response = router.query(prompt)
+                
+                # If successful, show answer
+                st.markdown(response.response)
+                st.session_state.messages.append({"role": "assistant", "content": str(response.response)})
+            
+            except Exception as e:
+                # 🚨 THE FIX: Print the error to the UI in a red box
+                st.error(f"An error occurred: {e}")
+                
+                # Optional: Add a helper tip if it looks like a DB error
+                if "no such table" in str(e).lower():
+                    st.warning("Hint: Did you forget to upload 'company_data.db' to GitHub?")
