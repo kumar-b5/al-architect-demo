@@ -10,7 +10,7 @@ from llama_index.core import (
 from llama_index.core.query_engine import NLSQLTableQueryEngine, RouterQueryEngine
 from llama_index.core.selectors import LLMSingleSelector
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
-from llama_index.core.agent import ReActAgent
+from llama_index.core.agent import AgentRunner, ReActAgentWorker
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq  # <--- NEW IMPORT
 from sqlalchemy import create_engine
@@ -23,6 +23,7 @@ st.title("☁️ Enterprise AI (Cloud Edition)")
 # If running locally, make sure you set this in your terminal or .env
 groq_api_key = st.secrets.get("GROQ_API_KEY") 
 
+@st.cache_resource
 @st.cache_resource
 @st.cache_resource
 def load_cloud_pipeline():
@@ -69,16 +70,20 @@ def load_cloud_pipeline():
         st.warning(f"SQL Load Error: {e}")
         return None
 
-    # 3. THE AGENT (Replacing the Router)
-    # The ReAct Agent is smarter; it can self-correct if the JSON is bad.
-    agent = ReActAgent.from_tools(
-        [rag_tool, sql_tool], 
-        llm=llm, 
-        verbose=True,
-        max_iterations=10
-    )
-    
-    return agent
+    # 3. THE AGENT (MANUAL CONSTRUCTION - THE FIX)
+    try:
+        # We build the worker (logic) and runner (loop) separately
+        agent_worker = ReActAgentWorker.from_tools(
+            [rag_tool, sql_tool], 
+            llm=llm, 
+            verbose=True,
+            max_iterations=10
+        )
+        agent = AgentRunner(agent_worker)
+        return agent
+    except Exception as e:
+        st.error(f"Agent Construction Error: {e}")
+        return None
 
 # --- APP INTERFACE (Standard Streamlit) ---
 with st.spinner("Connecting to Cloud Intelligence..."):
