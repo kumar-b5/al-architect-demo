@@ -20,7 +20,7 @@ else:
 # 2. Test Groq Connection
 # This attempts a simple 'Hello' to the AI
 try:
-    llm = Groq(model="llama3-8b-8192", api_key=api_key)
+    llm = Groq(model="llama-3.1-8b-instant", api_key=api_key)
     response = llm.complete("Hello, are you online?")
     st.write("### Groq Response:")
     st.success(response)
