@@ -10,6 +10,7 @@ from llama_index.core import (
 from llama_index.core.query_engine import NLSQLTableQueryEngine, RouterQueryEngine
 from llama_index.core.selectors import LLMSingleSelector
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
+from llama_index.core.agent import ReActAgent
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq  # <--- NEW IMPORT
 from sqlalchemy import create_engine
@@ -23,23 +24,21 @@ st.title("☁️ Enterprise AI (Cloud Edition)")
 groq_api_key = st.secrets.get("GROQ_API_KEY") 
 
 @st.cache_resource
+@st.cache_resource
 def load_cloud_pipeline():
-    # 1. SETUP EMBEDDINGS (Local CPU is fine for this)
+    # 1. SETUP MODEL
     embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
     Settings.embed_model = embed_model
     
-    # 2. SETUP LLM (The Switch to Groq)
     if not groq_api_key:
-        st.error("GROQ_API_KEY not found!")
         return None
         
     llm = Groq(model="llama-3.1-8b-instant", api_key=groq_api_key)
     Settings.llm = llm
 
-    # 3. SETUP TOOLS (Same as before)
-    # A. RAG
+    # 2. SETUP TOOLS
+    # A. RAG Tool
     try:
-        # We assume you uploaded the './storage' folder to GitHub
         storage_context = StorageContext.from_defaults(persist_dir="./storage")
         vector_index = load_index_from_storage(storage_context)
         vector_engine = vector_index.as_query_engine()
@@ -47,16 +46,15 @@ def load_cloud_pipeline():
             query_engine=vector_engine,
             metadata=ToolMetadata(
                 name="document_search", 
-                description="For qualitative questions/policies."
+                description="Use this for questions about text, policies, summaries, or documents."
             )
         )
     except Exception as e:
         st.warning(f"RAG Load Error: {e}")
         return None
 
-    # B. SQL
+    # B. SQL Tool
     try:
-        # We assume you uploaded 'company_data.db' to GitHub
         engine = create_engine("sqlite:///company_data.db")
         sql_database = SQLDatabase(engine, include_tables=["sales"])
         sql_engine = NLSQLTableQueryEngine(sql_database=sql_database)
@@ -64,19 +62,23 @@ def load_cloud_pipeline():
             query_engine=sql_engine,
             metadata=ToolMetadata(
                 name="sales_database", 
-                description="For quantitative/sales data."
+                description="Use this for questions about numbers, sales, revenue, and math."
             )
         )
     except Exception as e:
         st.warning(f"SQL Load Error: {e}")
         return None
 
-    # 4. ROUTER
-    return RouterQueryEngine(
-        selector=LLMSingleSelector.from_defaults(llm=llm),
-        query_engine_tools=[rag_tool, sql_tool],
-        verbose=True
+    # 3. THE AGENT (Replacing the Router)
+    # The ReAct Agent is smarter; it can self-correct if the JSON is bad.
+    agent = ReActAgent.from_tools(
+        [rag_tool, sql_tool], 
+        llm=llm, 
+        verbose=True,
+        max_iterations=10
     )
+    
+    return agent
 
 # --- APP INTERFACE (Standard Streamlit) ---
 with st.spinner("Connecting to Cloud Intelligence..."):
@@ -92,27 +94,23 @@ for message in st.session_state.messages:
 # ... (Top of file remains the same) ...
 
 # HANDLE INPUT
+i# ... (Top logic remains same)
+
 if prompt := st.chat_input("Ask a question..."):
-    # 1. Show User Message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. Generate AI Response (WITH ERROR CATCHING)
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # This is the line that might crash
-                response = router.query(prompt)
+                # USE .chat() instead of .query()
+                response = router.chat(prompt)
                 
-                # If successful, show answer
                 st.markdown(response.response)
                 st.session_state.messages.append({"role": "assistant", "content": str(response.response)})
             
             except Exception as e:
-                # 🚨 THE FIX: Print the error to the UI in a red box
                 st.error(f"An error occurred: {e}")
-                
-                # Optional: Add a helper tip if it looks like a DB error
                 if "no such table" in str(e).lower():
                     st.warning("Hint: Did you forget to upload 'company_data.db' to GitHub?")
